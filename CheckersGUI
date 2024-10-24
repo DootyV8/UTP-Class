@@ -1,0 +1,182 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+
+public class CheckersGUI extends JFrame {
+    private static final int BOARD_SIZE = 8;
+    private static final int SQUARE_SIZE = 80;
+    private BoardPanel boardPanel;
+    private JLabel statusLabel;
+    private Point selectedPiece = null;
+
+    static {
+        System.loadLibrary("liblibCheckers");
+    }
+
+    // Native method declarations
+    private native int[][] getBoardState();
+    private native boolean isValidMove(int startX, int startY, int endX, int endY);
+    private native void makeMove(int startX, int startY, int endX, int endY);
+    private native boolean isGameOver();
+    private native int getCurrentPlayer();
+
+    public CheckersGUI() {
+        setTitle("Checkers Game");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        // Initialize components
+        boardPanel = new BoardPanel();
+        statusLabel = new JLabel("Player 1's turn");
+
+        // Layout setup
+        setLayout(new BorderLayout());
+        add(boardPanel, BorderLayout.CENTER);
+        add(statusLabel, BorderLayout.SOUTH);
+
+        // Size and display
+        pack();
+        setLocationRelativeTo(null);
+        setVisible(true);
+
+        // Add keyboard listener
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handleKeyPress(e);
+            }
+        });
+        setFocusable(true);
+    }
+
+    private class BoardPanel extends JPanel {
+        public BoardPanel() {
+            setPreferredSize(new Dimension(BOARD_SIZE * SQUARE_SIZE, BOARD_SIZE * SQUARE_SIZE));
+
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleMouseClick(e.getPoint());
+                }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            drawBoard(g);
+            drawPieces(g);
+        }
+
+        private void drawBoard(Graphics g) {
+            for (int row = 0; row < BOARD_SIZE; row++) {
+                for (int col = 0; col < BOARD_SIZE; col++) {
+                    boolean isLight = (row + col) % 2 == 0;
+                    g.setColor(isLight ? Color.WHITE : Color.BLACK);
+                    g.fillRect(col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+                }
+            }
+        }
+
+        private void drawPieces(Graphics g) {
+            int[][] board = getBoardState();
+            for (int row = 0; row < BOARD_SIZE; row++) {
+                for (int col = 0; col < BOARD_SIZE; col++) {
+                    if (board[row][col] != 0) {
+                        drawPiece(g, row, col, board[row][col]);
+                    }
+                }
+            }
+        }
+
+        private void drawPiece(Graphics g, int row, int col, int pieceType) {
+            int x = col * SQUARE_SIZE + SQUARE_SIZE/4;
+            int y = row * SQUARE_SIZE + SQUARE_SIZE/4;
+            int diameter = SQUARE_SIZE/2;
+
+            g.setColor(pieceType > 0 ? Color.RED : Color.WHITE);
+            g.fillOval(x, y, diameter, diameter);
+            g.setColor(Color.BLACK);
+            g.drawOval(x, y, diameter, diameter);
+
+            // Draw king piece indicator
+            if (Math.abs(pieceType) == 2) {
+                g.setColor(Color.YELLOW);
+                g.fillOval(x + diameter/4, y + diameter/4, diameter/2, diameter/2);
+            }
+        }
+    }
+
+    private void handleMouseClick(Point point) {
+        int col = point.x / SQUARE_SIZE;
+        int row = point.y / SQUARE_SIZE;
+
+        if (selectedPiece == null) {
+            selectedPiece = new Point(col, row);
+        } else {
+            if (isValidMove(selectedPiece.x, selectedPiece.y, col, row)) {
+                makeMove(selectedPiece.x, selectedPiece.y, col, row);
+                updateGameStatus();
+            }
+            selectedPiece = null;
+        }
+        boardPanel.repaint();
+    }
+
+    private void handleKeyPress(KeyEvent e) {
+        if (selectedPiece != null) {
+            int newX = selectedPiece.x;
+            int newY = selectedPiece.y;
+
+            switch (e.getKeyCode()) {
+                case KeyEvent.VK_UP: newY--; break;
+                case KeyEvent.VK_DOWN: newY++; break;
+                case KeyEvent.VK_LEFT: newX--; break;
+                case KeyEvent.VK_RIGHT: newX++; break;
+                case KeyEvent.VK_ENTER:
+                    if (isValidMove(selectedPiece.x, selectedPiece.y, newX, newY)) {
+                        makeMove(selectedPiece.x, selectedPiece.y, newX, newY);
+                        updateGameStatus();
+                    }
+                    selectedPiece = null;
+                    break;
+            }
+
+            if (newX >= 0 && newX < BOARD_SIZE && newY >= 0 && newY < BOARD_SIZE) {
+                selectedPiece.setLocation(newX, newY);
+                boardPanel.repaint();
+            }
+        }
+    }
+
+    private void updateGameStatus() {
+        if (isGameOver()) {
+            statusLabel.setText("Game Over! Player " + getCurrentPlayer() + " wins!");
+        } else {
+            statusLabel.setText("Player " + getCurrentPlayer() + "'s turn");
+        }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> new CheckersGUI());
+    }
+}
+
+
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.example</groupId>
+    <artifactId>Checkers</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>23</maven.compiler.source>
+        <maven.compiler.target>23</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+</project>
