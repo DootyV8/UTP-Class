@@ -1,177 +1,195 @@
-#include <jni.h>
 #include "CheckersGUI.h"
 #include <vector>
 #include <algorithm>
+#include <jni.h>
 
-class CheckersGame {
-private:
-    static const int BOARD_SIZE = 8;
-    std::vector<std::vector<int> > board;
-    int currentPlayer; // 1 for red, -1 for black
-
+class GameBoard {
 public:
-    CheckersGame() : board(BOARD_SIZE, std::vector<int>(BOARD_SIZE, 0)), currentPlayer(1) {
-        initializeBoard();
-    }
+    static int pieces[8][8];
+    static int currentPlayer; // 1 for red, -1 for white
+    static std::vector<std::pair<int, int>> validMoves;
+    static bool mustJump;
 
-    void initializeBoard() {
+    static void initialize() {
+        currentPlayer = 1; // Red starts
+        mustJump = false;
+
+        // Clear board
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                pieces[i][j] = 0;
+            }
+        }
+
         // Place red pieces (1)
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < BOARD_SIZE; col++) {
-                if ((row + col) % 2 == 1) {
-                    board[row][col] = 1;
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 8; j++) {
+                if ((i + j) % 2 == 1) {
+                    pieces[i][j] = 1;
                 }
             }
         }
 
-        // Place black pieces (-1)
-        for (int row = 5; row < BOARD_SIZE; row++) {
-            for (int col = 0; col < BOARD_SIZE; col++) {
-                if ((row + col) % 2 == 1) {
-                    board[row][col] = -1;
+        // Place white pieces (-1)
+        for (int i = 5; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                if ((i + j) % 2 == 1) {
+                    pieces[i][j] = -1;
                 }
             }
         }
     }
 
-    bool isValidMove(int startX, int startY, int endX, int endY) const {
-        // Check bounds
-        if (startX < 0 || startX >= BOARD_SIZE || startY < 0 || startY >= BOARD_SIZE ||
-            endX < 0 || endX >= BOARD_SIZE || endY < 0 || endY >= BOARD_SIZE) {
+    static bool isValidPosition(int x, int y) {
+        return x >= 0 && x < 8 && y >= 0 && y < 8;
+    }
+
+    static bool hasJumpAvailable() {
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                if (pieces[i][j] == currentPlayer) {
+                    // Check all possible jump directions
+                    int directions[] = {-1, 1};
+                    for (int dx : directions) {
+                        for (int dy : directions) {
+                            int midX = j + dx;
+                            int midY = i + dy;
+                            int endX = j + 2 * dx;
+                            int endY = i + 2 * dy;
+
+                            if (isValidPosition(endX, endY) &&
+                                isValidPosition(midX, midY) &&
+                                pieces[midY][midX] == -currentPlayer &&
+                                pieces[endY][endX] == 0) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool isValidMove(int startX, int startY, int endX, int endY) {
+        // Basic boundary checks
+        if (!isValidPosition(startX, startY) || !isValidPosition(endX, endY)) {
             return false;
         }
 
         // Check if start position has current player's piece
-        if (board[startY][startX] * currentPlayer <= 0) {
+        if (pieces[startY][startX] != currentPlayer) {
             return false;
         }
 
         // Check if end position is empty
-        if (board[endY][endX] != 0) {
+        if (pieces[endY][endX] != 0) {
             return false;
         }
 
+        // Check if it's a diagonal move
         int dx = endX - startX;
         int dy = endY - startY;
 
-        // Check if move is diagonal
-        if (abs(dx) != abs(dy)) {
-            return false;
-        }
-
         // Regular move
-        if (abs(dx) == 1) {
-            // Regular pieces can only move forward
-            if (board[startY][startX] == 1 && dy <= 0) return false;
-            if (board[startY][startX] == -1 && dy >= 0) return false;
-            return true;
+        if (abs(dx) == 1 && dy == currentPlayer) {
+            // If jumps are available, must take them
+            return !hasJumpAvailable();
         }
 
-        // Capture move
-        if (abs(dx) == 2) {
-            int midX = startX + dx / 2;
-            int midY = startY + dy / 2;
-
-            // Check if there's an opponent's piece to capture
-            return board[midY][midX] == -currentPlayer;
+        // Jump move
+        if (abs(dx) == 2 && abs(dy) == 2) {
+            int midX = startX + dx/2;
+            int midY = startY + dy/2;
+            return pieces[midY][midX] == -currentPlayer;
         }
 
         return false;
     }
 
-    void makeMove(int startX, int startY, int endX, int endY) {
-        if (!isValidMove(startX, startY, endX, endY)) {
-            return;
-        }
+    static void makeMove(int startX, int startY, int endX, int endY) {
+        // Execute the move
+        pieces[endY][endX] = pieces[startY][startX];
+        pieces[startY][startX] = 0;
 
-        // Move the piece
-        board[endY][endX] = board[startY][startX];
-        board[startY][startX] = 0;
-
-        // Handle capture
+        // If it was a jump, remove the jumped piece
         if (abs(endX - startX) == 2) {
-            int midX = startX + (endX - startX) / 2;
-            int midY = startY + (endY - startY) / 2;
-            board[midY][midX] = 0;
-        }
+            int midX = (startX + endX) / 2;
+            int midY = (startY + endY) / 2;
+            pieces[midY][midX] = 0;
 
-        // King promotion
-        if ((endY == 0 && board[endY][endX] == -1) ||
-            (endY == BOARD_SIZE - 1 && board[endY][endX] == 1)) {
-            board[endY][endX] *= 2;
+            // Check for additional jumps
+            if (!hasJumpAvailable()) {
+                currentPlayer = -currentPlayer;
+            }
+        } else {
+            currentPlayer = -currentPlayer;
         }
-
-        // Switch players
-        currentPlayer = -currentPlayer;
     }
 
-    bool isGameOver() const {
-        // Check if any player has pieces left
-        bool redPieces = false;
-        bool blackPieces = false;
+    static bool isGameOver() {
+        bool redFound = false;
+        bool whiteFound = false;
 
-        for (int row = 0; row < BOARD_SIZE; row++) {
-            for (int col = 0; col < BOARD_SIZE; col++) {
-                if (board[row][col] > 0) redPieces = true;
-                if (board[row][col] < 0) blackPieces = true;
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                if (pieces[i][j] == 1) redFound = true;
+                if (pieces[i][j] == -1) whiteFound = true;
+                if (redFound && whiteFound) return false;
             }
         }
 
-        return !redPieces || !blackPieces;
-    }
-
-    int getCurrentPlayer() const {
-        return currentPlayer;
-    }
-
-    const std::vector<std::vector<int> > &getBoard() const {
-        return board;
+        return true;
     }
 };
 
-// Global game instance
-static CheckersGame game;
+int GameBoard::pieces[8][8] = {};
+int GameBoard::currentPlayer = 1;
+// std::vector<std::pair<int, int>> GameBoard::validMoves;
+bool GameBoard::mustJump = false;
 
-// JNI implementations
+JNIEXPORT void JNICALL Java_CheckersGUI_makeBoard(JNIEnv* env, jobject obj) {
+    GameBoard::initialize();
+}
 
-JNIEXPORT jobjectArray JNICALL Java_CheckersGUI_getBoardState
-(JNIEnv env, jobject obj) {
-    const auto &board = game.getBoard();
+JNIEXPORT jobjectArray JNICALL Java_CheckersGUI_getBoardState(JNIEnv* env, jobject obj) {
+    jclass intArrayClass = env->FindClass("[I");
+    if (intArrayClass == nullptr) return nullptr;
 
-    // Create 2D array
-    jclass intArrayClass = env.FindClass("[I"); //syntax of one dimensional array of ints
-    jobjectArray result = env.NewObjectArray(8, intArrayClass, NULL);
+    jobjectArray result = env->NewObjectArray(8, intArrayClass, nullptr);
+    if (result == nullptr) return nullptr;
 
     for (int i = 0; i < 8; i++) {
-        jintArray row = env.NewIntArray(8);
+        jintArray row = env->NewIntArray(8);
+        if (row == nullptr) return nullptr;
+
         jint rowData[8];
         for (int j = 0; j < 8; j++) {
-            rowData[j] = board[i][j];
+            rowData[j] = GameBoard::pieces[i][j];
         }
-        env.SetIntArrayRegion(row, 0, 8, rowData);
-        env.SetObjectArrayElement(result, i, row);
-        env.DeleteLocalRef(row);
+
+        env->SetIntArrayRegion(row, 0, 8, rowData);
+        env->SetObjectArrayElement(result, i, row);
+        env->DeleteLocalRef(row);
     }
 
     return result;
 }
 
-JNIEXPORT jboolean JNICALL Java_CheckersGUI_isValidMove
-(JNIEnv *env, jobject obj, jint startX, jint startY, jint endX, jint endY) {
-    return game.isValidMove(startX, startY, endX, endY);
+JNIEXPORT jboolean JNICALL Java_CheckersGUI_isValidMove(JNIEnv* env, jobject obj,
+    jint startX, jint startY, jint endX, jint endY) {
+    return GameBoard::isValidMove(startX, startY, endX, endY);
 }
 
-JNIEXPORT void JNICALL Java_CheckersGUI_makeMove
-(JNIEnv *env, jobject obj, jint startX, jint startY, jint endX, jint endY) {
-    game.makeMove(startX, startY, endX, endY);
+JNIEXPORT void JNICALL Java_CheckersGUI_makeMove(JNIEnv* env, jobject obj,
+    jint startX, jint startY, jint endX, jint endY) {
+    GameBoard::makeMove(startX, startY, endX, endY);
 }
 
-JNIEXPORT jboolean JNICALL Java_CheckersGUI_isGameOver
-(JNIEnv *env, jobject obj) {
-    return game.isGameOver();
+JNIEXPORT jboolean JNICALL Java_CheckersGUI_isGameOver(JNIEnv* env, jobject obj) {
+    return GameBoard::isGameOver();
 }
 
-JNIEXPORT jint JNICALL Java_CheckersGUI_getCurrentPlayer
-(JNIEnv *env, jobject obj) {
-    return game.getCurrentPlayer();
+JNIEXPORT jint JNICALL Java_CheckersGUI_getCurrentPlayer(JNIEnv* env, jobject obj) {
+    return GameBoard::currentPlayer;
 }
